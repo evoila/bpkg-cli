@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -ueo pipefail
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+readonly script_dir
+script_name=$(basename "$0")
+readonly script_name
+
+function main() {
+    local verb=$1
+
+    case ${verb} in
+        -h)
+            usage ; exit 0 ;;
+        upload)
+            ;;
+        download)
+            ;;
+        *)
+            usage ; exit 2 ;;
+    esac
+}
+
+function usage() {
+    echo "Usage: ${script_name} <upload|download> <package-name>"
+}
+
+main "$@"

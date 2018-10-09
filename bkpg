@@ -1,0 +1,13 @@
+#!/bin/bash
+
+PACKAGE=$1
+
+if [[ ! -d "./packages" ]]; then
+  echo "Check if you are in a bosh release folder. No folder 'packages' found."
+fi
+
+pushd ./packages/$PACKAGE > /dev/null
+  NAME=$(yq r spec name)
+  DEPENDENCIES=$(yq r spec dependencies)
+  FILES=$(yq r spec files)
+popd > /dev/null

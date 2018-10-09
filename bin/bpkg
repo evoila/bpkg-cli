@@ -89,7 +89,32 @@ function upload_package() {
             "${BOSH_CENTRAL_BASE_URI}/package" \
             --data-raw "${pkg_metadata}"
     )
+ 
+    # urn = urn:package:1213ab-1232-1231-123123213
+    local uuid
+    uuid=$(
+        jq '.urn' \
+            <<< "${pkg_metadata}" \
+            | sed -e 's/^.*:package:\(.*\)$/\1/'
+        )
 
+    # tar things here
+    # get blobs from bosh director
+    bosh sync blobs
+
+    local combined_paths
+    for file in files do
+        local path
+        combined_paths+=($(find src blobs -path "*/${file}" -print))
+    done
+
+    mkdir -p ./tmp
+       
+    tar -czf - "${combined_paths[@]}" \
+        | tee ./tmp/debug.tgz \
+        | curl -X POST \
+            "${BOSH_CENTRAL_BASE_URI}/bits/${uuid}" \
+            -F "file=@/dev/stdin"
 }
 
 function build_metadata() {

@@ -103,7 +103,9 @@ function upload_package() {
     # get blobs from bosh director
     bosh sync blobs
 
-    local combined_paths file
+    local combined_paths
+    combined_paths=($(find "packages/${pkg_name}" -print))
+    local file
     for file in "${files[@]}"; do
         combined_paths+=(
             $(find src blobs -path "*/${file}" -print)
@@ -117,6 +119,8 @@ function upload_package() {
         | curl -fsSL -X POST \
             "${BOSH_CENTRAL_BASE_URI}/bits/${uuid}" \
             -F "file=@/dev/stdin"
+
+    echo "Success"
 }
 
 function build_metadata() {
@@ -163,32 +167,61 @@ function download_package() {
             --vendor)       vendor=$1 ; shift ;;
             --os)           os=$1 ; shift ;;
             --arch)         arch=$1 ; shift ;;
-            --sc-family)    family=$1 ; shift ;;
+            --sc-family)    stemcellFamily=$1 ; shift ;;
             --sc-version)   sc_version=$1 ; shift ;;
             --flavor)       flavor=$1 ; shift ;;
             *)              name=$next_arg ;;
         esac
     done
-    local payload='{}'
-    for var_name in version vendor os arch flavor name; do
-        payload=$(
-            jq --arg value "${!var_name}" \
-                ".${var_name} = \$value" <<< ${payload}
-        )
-    done
-    local major_version minor_version
-    major_version=$(cut -d. -f1 <<< ${sc_version})
-    minor_version=$(cut -d. -f2 <<< ${sc_version})
-    for var_name in family major_version minor_version; do
-        payload=$(
-            jq --arg value "${!var_name}" \
-                ".stemcell.${var_name} = \$value" <<< ${payload}
-        )
-    done
-    jq -n "${payload}"
 
-    curl -fsSL -X GET \
-        "${BOSH_CENTRAL_BASE_URI}/package"
+    local stemcellMajor stemcellMinor
+    if [[ -n ${sc_version} ]]; then
+        stemcellMajor=$(cut -d. -f1 <<< "${sc_version}")
+        stemcellMinor=$(cut -d. -f2 <<< "${sc_version}")
+    fi
+    local query_string
+    for var_name in version vendor os arch flavor name \
+            stemcellFamily stemcellMajor stemcellMinor; do
+        if [[ -z ${!var_name} ]]; then
+            # omit empty values
+            continue
+        fi
+        if [[ -n ${query_string} ]]; then
+            query_string+="&"
+        fi
+        query_string+="${var_name}=${!var_name}"
+    done
+
+    local response_body
+    response_body=$(
+        curl -fsSL -X GET \
+            -H "Content-Type: application/json" \
+            "${BOSH_CENTRAL_BASE_URI}/package?${query_string}"
+    )
+    echo response_body: "$response_body"
+
+    # We only pick the first candidate
+    local uuid
+    uuid=$(jq -r "[0].uuid" <<< "${response_body}")
+
+    local old_IFS=$IFS
+    IFS=$'\n'
+        local tar_extracted_files
+        tar_extracted_files=$(
+            curl -fsSL -X GET \
+                    "${BOSH_CENTRAL_BASE_URI}/bits/${uuid}" \
+                | tar -zxvf - \
+                | sed -ne 's/^x //p'
+        )
+    IFS="${old_IFS}"
+
+    for file in "${tar_extracted_files[@]}"; do
+        if [[ $file == blobs/* ]]; then
+            bosh add-blob "${file}" "${file/#blobs\//}"
+        fi
+    done
+
+    echo "Success"
 }
 
 main "$@"

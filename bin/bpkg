@@ -47,13 +47,14 @@ function upload_package() {
         exit 2
     fi
 
-    # set -x
     local pkg_metadata dep dep_metadata
     pkg_metadata=$(build_metadata "${pkg_name}")
 
     local old_IFS=$IFS
     IFS=$'\n'
+        local dependencies files
         dependencies=($(yq -r ".dependencies[]" "packages/${pkg_name}/spec" | tr -d '\r'))
+        files=($(yq -r ".files[]" "packages/${pkg_name}/spec" | tr -d '\r'))
     IFS="${old_IFS}"
 
     # echo "DEBUG: dependencies:" "${dependencies[@]}"
@@ -83,6 +84,7 @@ function upload_package() {
     # jq . <<< ${pkg_metadata}
     # exit
 
+    set -x
     local response_body
     response_body=$(
         curl -fsSL -X POST \
@@ -90,36 +92,41 @@ function upload_package() {
             "${BOSH_CENTRAL_BASE_URI}/package" \
             --data-raw "${pkg_metadata}"
     )
+    set +x
  
     # Example payload:
     # { "urn": "urn:package:d8fa07cc-aecf-46da-af58-a726b44fd060" }
     local uuid
     uuid=$(
-        jq '.urn' \
-            <<< "${pkg_metadata}" \
+        jq -r '.urn' \
+            <<< "${response_body}" \
             | sed -e 's/^.*:package:\(.*\)$/\1/'
         )
 
     # tar things here
     # get blobs from bosh director
-    bosh sync blobs
+    bosh sync-blobs > /dev/null
 
     local combined_paths
-    combined_paths=($(find "packages/${pkg_name}" -print))
+    combined_paths=("packages/${pkg_name}")
     local file
     for file in "${files[@]}"; do
-        combined_paths+=(
-            $(find src blobs -path "*/${file}" -print)
-        )
+        combined_paths+=($(find src blobs -type f -path "*/${file}" -print))
     done
+    # echo "DEBUG: combined_paths:" "${combined_paths[@]}"
 
     mkdir -p ./tmp
-       
-    tar -czf - "${combined_paths[@]}" \
-        | tee ./tmp/debug.tgz \
-        | curl -fsSL -X POST \
+    rm -f tmp/debug.tgz
+
+    tar -czf tmp/debug.tgz "${combined_paths[@]}"
+    set -x
+    local created_object=$(
+        curl -fsSL -X POST \
             "${BOSH_CENTRAL_BASE_URI}/bits/${uuid}" \
-            -F "file=@/dev/stdin"
+            -F "file=@tmp/debug.tgz"
+    )
+    set +x
+    jq -n "${created_object}"
 
     echo "Success"
 }
@@ -171,9 +178,14 @@ function download_package() {
             --sc-family)    stemcellFamily=$1 ; shift ;;
             --sc-version)   sc_version=$1 ; shift ;;
             --flavor)       flavor=$1 ; shift ;;
-            *)              name=$next_arg ;;
+            *)              packageName=$next_arg ;;
         esac
     done
+
+    if [[ -z ${packageName} ]]; then
+        usage
+        exit 2
+    fi
 
     local stemcellMajor stemcellMinor
     if [[ -n ${sc_version} ]]; then
@@ -181,7 +193,7 @@ function download_package() {
         stemcellMinor=$(cut -d. -f2 <<< "${sc_version}")
     fi
     local query_string
-    for var_name in version vendor os arch flavor name \
+    for var_name in version vendor os arch flavor packageName \
             stemcellFamily stemcellMajor stemcellMinor; do
         if [[ -z ${!var_name} ]]; then
             # omit empty values
@@ -193,6 +205,7 @@ function download_package() {
         query_string+="${var_name}=${!var_name}"
     done
 
+    set -x
     local response_body
     response_body=$(
         curl -fsSL -X GET \
@@ -208,7 +221,7 @@ function download_package() {
 
     # We only pick the first candidate
     local uuid
-    uuid=$(jq -r "[0].uuid" <<< "${response_body}")
+    uuid=$(jq -r ".[0].uuid" <<< "${response_body}")
 
     local old_IFS=$IFS
     IFS=$'\n'

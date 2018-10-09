@@ -8,7 +8,8 @@ script_name=$(basename "$0")
 readonly script_name
 
 
-BOSH_CENTRAL_BASE_URI=http://central.bosh.community
+# BOSH_CENTRAL_BASE_URI=http://central.bosh.community
+BOSH_CENTRAL_BASE_URI=http://bosh-central.cf.dev.eu-de-central.msh.host
 
 
 function main() {
@@ -199,6 +200,11 @@ function download_package() {
             "${BOSH_CENTRAL_BASE_URI}/package?${query_string}"
     )
     echo response_body: "$response_body"
+
+    if [[ $(jq -n "${response_body} | length") -eq 0 ]]; then
+        echo "No such package '${name}' in BOSH Central repository." >&2
+        exit 1
+    fi
 
     # We only pick the first candidate
     local uuid

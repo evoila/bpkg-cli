@@ -47,6 +47,40 @@ function upload_package() {
         exit 2
     fi
 
+    upload_one_package "${pkg_name}"
+
+    upload_direct_dependencies "${pkg_name}"
+
+    echo "Success"
+}
+
+function upload_direct_dependencies() {
+    local pkg_name=$1
+
+    local old_IFS=$IFS
+    IFS=$'\n'
+        local dependencies
+        dependencies=($(yq -r ".dependencies[]" "packages/${pkg_name}/spec" | tr -d '\r'))
+    IFS="${old_IFS}"
+
+    # echo "DEBUG: dependencies:" "${dependencies[@]}"
+    for dep in "${dependencies[@]}"; do
+        if [[ ! -d "./packages/${dep}" ]]; then
+            echo -e "ERROR: no such package dependecy: '${dep}'." \
+                "Shouldn't you download it from BOSH-Central?" \
+                "Aborting.\n" \
+                "Hint: use \`bpkg dowload ${dep}\` for that." \
+                 >&2
+            exit 2
+        fi
+
+        upload_one_package "${dep}"
+    done
+}
+
+function upload_one_package() {
+    local pkg_name=$1
+
     local pkg_metadata dep dep_metadata
     pkg_metadata=$(build_metadata "${pkg_name}")
 
@@ -92,7 +126,7 @@ function upload_package() {
             "${BOSH_CENTRAL_BASE_URI}/package" \
             --data-raw "${pkg_metadata}"
     )
-    set +x
+    # set +x
  
     # Example payload:
     # { "urn": "urn:package:d8fa07cc-aecf-46da-af58-a726b44fd060" }
@@ -105,7 +139,9 @@ function upload_package() {
 
     # tar things here
     # get blobs from bosh director
-    bosh sync-blobs > /dev/null
+    if [[ $(basename $PWD) != mongodb-compilation-boshrelease ]]; then
+        bosh sync-blobs # > /dev/null
+    fi
 
     local combined_paths
     combined_paths=("packages/${pkg_name}")
@@ -127,8 +163,6 @@ function upload_package() {
     )
     set +x
     jq -n "${created_object}"
-
-    echo "Success"
 }
 
 function build_metadata() {

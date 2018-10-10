@@ -126,7 +126,7 @@ function upload_one_package() {
             "${BOSH_CENTRAL_BASE_URI}/package" \
             --data-raw "${pkg_metadata}"
     )
-    # set +x
+    set +x
  
     # Example payload:
     # { "urn": "urn:package:d8fa07cc-aecf-46da-af58-a726b44fd060" }
@@ -246,7 +246,8 @@ function download_package() {
             -H "Content-Type: application/json" \
             "${BOSH_CENTRAL_BASE_URI}/package?${query_string}"
     )
-    echo response_body: "$response_body"
+    jq -n "${response_body}"
+    set +x
 
     if [[ $(jq -n "${response_body} | length") -eq 0 ]]; then
         echo "No such package '${name}' in BOSH Central repository." >&2

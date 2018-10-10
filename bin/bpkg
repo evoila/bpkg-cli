@@ -246,8 +246,8 @@ function download_package() {
             -H "Content-Type: application/json" \
             "${BOSH_CENTRAL_BASE_URI}/package?${query_string}"
     )
-    jq -n "${response_body}"
     set +x
+    jq -n "${response_body}"
 
     if [[ $(jq -n "${response_body} | length") -eq 0 ]]; then
         echo "No such package '${name}' in BOSH Central repository." >&2
@@ -261,19 +261,24 @@ function download_package() {
     local old_IFS=$IFS
     IFS=$'\n'
         local tar_extracted_files
-        tar_extracted_files=$(
-            curl -fsSL -X GET \
+        tar_extracted_files=(
+            $(curl -fsSL -X GET \
                     "${BOSH_CENTRAL_BASE_URI}/bits/${uuid}" \
-                | tar -zxvf - \
+                | tar -zxvf - 2>&1 \
                 | sed -ne 's/^x //p'
+            )
         )
     IFS="${old_IFS}"
 
+    # echo "DEBUG: tar_extracted_files:" "${tar_extracted_files[@]}"
+    # set -x
     for file in "${tar_extracted_files[@]}"; do
+        # echo "DEBUG: file: '${file}'"
         if [[ $file == blobs/* ]]; then
             bosh add-blob "${file}" "${file/#blobs\//}"
         fi
     done
+    # set +x
 
     local new_IFS=$IFS
     IFS=$'\n'

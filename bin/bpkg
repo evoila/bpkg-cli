@@ -240,6 +240,19 @@ function download_package() {
         fi
     done
 
+    local new_IFS=$IFS
+    IFS=$'\n'
+        local dependencies files
+        dependencies=($(yq -r ".dependencies[]" "packages/${packageName}/spec" | tr -d '\r'))
+    IFS="${new_IFS}"
+
+    # echo "DEBUG: dependencies:" "${dependencies[@]}"
+    for dep in "${dependencies[@]}"; do
+        if [[ ! -d "./packages/${dep}" ]]; then
+            download_package ${dep}
+        fi
+    done
+
     echo "Success"
 }
 
